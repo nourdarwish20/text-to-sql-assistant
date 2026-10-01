@@ -1,0 +1,6 @@
+[client]
+# Visitors see the error type and message, not full tracebacks with server file paths.
+showErrorDetails = "type"
+
+[browser]
+gatherUsageStats = false

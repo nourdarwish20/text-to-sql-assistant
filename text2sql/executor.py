@@ -13,6 +13,7 @@ import pandas as pd
 
 MAX_ROWS = 500
 TIMEOUT_SECONDS = 5
+MAX_VALUE_BYTES = 10_000_000   # largest string/blob SQLite may build; stops memory blow-ups
 
 
 class ExecutionError(Exception):
@@ -33,6 +34,8 @@ def connect_read_only(db_path: str | Path) -> sqlite3.Connection:
         raise FileNotFoundError(f"Database not found: {path}")
     conn = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
     conn.execute("PRAGMA query_only = ON")
+    # The time limit can't stop a single huge allocation (e.g. randomblob), so cap value size.
+    conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_VALUE_BYTES)
     return conn
 
 

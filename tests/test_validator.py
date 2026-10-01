@@ -22,6 +22,9 @@ TABLES = {"departments", "employees", "projects", "employee_projects"}
     "SELECT name FROM departments UNION SELECT name FROM projects",
     "SELECT * FROM employees WHERE department_id IN (SELECT id FROM departments)",
     "SELECT 1 + 1",
+    "SELECT printf('%.2f', AVG(salary)) AS avg_salary FROM employees",
+    "SELECT printf('%-20s|', first_name) FROM employees",
+    "SELECT value FROM json_each('[1, 2]')",
 ])
 def test_safe_selects_pass(sql):
     result = validate_sql(sql, TABLES)
@@ -41,6 +44,16 @@ def test_safe_selects_pass(sql):
     "VACUUM",
     "SELECT * FROM employees; DROP TABLE employees",
     "SELECT load_extension('evil.dll')",
+    "SELECT randomblob(1000000000)",
+    "SELECT length(zeroblob(1000000000))",
+    "SELECT hex(randomblob(10)) FROM employees",
+    "SELECT printf('%.*c', 1000000000, 'x')",
+    "SELECT printf('%1000000000d', 1)",
+    "SELECT format('%*c', 1000000000, 'x')",
+    "SELECT printf(first_name, 1) FROM employees",
+    "SELECT * FROM pragma_table_info('employees')",
+    "SELECT * FROM main.pragma_database_list",
+    "SELECT name FROM pragma_table_list()",
     "SELECT * FROM other.secrets",
     "SELECT * FROM passwords",
     "",
@@ -85,3 +98,8 @@ def test_executor_is_read_only_even_without_validator(sample_db):
 def test_executor_truncates_large_results(sample_db):
     result = run_query(sample_db, "SELECT * FROM employees", max_rows=5)
     assert len(result.dataframe) == 5 and result.truncated
+
+
+def test_executor_caps_value_size_even_without_validator(sample_db):
+    with pytest.raises(ExecutionError, match="too big"):
+        run_query(sample_db, "SELECT randomblob(500000000)")

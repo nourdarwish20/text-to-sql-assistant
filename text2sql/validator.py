@@ -5,6 +5,7 @@ what the statement actually is, not on searching for keywords in the text.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 
 import sqlglot
@@ -22,7 +23,16 @@ FORBIDDEN_NODES = (
     exp.Command,   # anything sqlglot doesn't understand (VACUUM, REPLACE, ...)
 )
 
-FORBIDDEN_FUNCTIONS = {"load_extension"}
+# load_extension can run native code; randomblob/zeroblob can allocate huge values in one call.
+FORBIDDEN_FUNCTIONS = {"load_extension", "randomblob", "zeroblob"}
+
+# Table-valued pragma functions, e.g. pragma_table_info('x'), pragma_database_list.
+FORBIDDEN_FUNCTION_PREFIX = "pragma_"
+
+# printf()/format() accept a width or precision that can build a huge string, e.g.
+# printf('%.*c', 1000000000, 'x'). Allow normal use like printf('%.2f', x), block `*` and 1000+.
+FORMAT_FUNCTIONS = {"printf", "format"}
+LARGE_FORMAT_SPEC = re.compile(r"%[-+ 0#,!]*(?:\*|\d{4,}|\d*\.(?:\*|\d{4,}))")
 
 
 @dataclass
@@ -52,8 +62,14 @@ def validate_sql(sql: str, allowed_tables: set[str]) -> ValidationResult:
     for node in statement.walk():
         if isinstance(node, FORBIDDEN_NODES):
             return ValidationResult(False, f"Forbidden operation inside query: {node.key.upper()}.")
-        if isinstance(node, exp.Func) and _function_name(node) in FORBIDDEN_FUNCTIONS:
-            return ValidationResult(False, f"Function {_function_name(node)}() is not allowed.")
+        if isinstance(node, exp.Func):
+            name = _function_name(node)
+            if name in FORBIDDEN_FUNCTIONS or name.startswith(FORBIDDEN_FUNCTION_PREFIX):
+                return ValidationResult(False, f"Function {name}() is not allowed.")
+            if name in FORMAT_FUNCTIONS and not _is_safe_format(node):
+                return ValidationResult(
+                    False, f"{name}() is only allowed with a literal format and widths under 1000."
+                )
 
     cte_names = {cte.alias_or_name.lower() for cte in statement.find_all(exp.CTE)}
     unknown = set()
@@ -75,3 +91,11 @@ def validate_sql(sql: str, allowed_tables: set[str]) -> ValidationResult:
 def _function_name(node: exp.Func) -> str:
     name = node.name if isinstance(node, exp.Anonymous) else node.sql_name()
     return name.lower()
+
+
+def _is_safe_format(node: exp.Func) -> bool:
+    """The format string must be a literal without `*` or 4+ digit width/precision."""
+    fmt = node.this if isinstance(node, exp.Format) else (node.expressions or [None])[0]
+    if not (isinstance(fmt, exp.Literal) and fmt.is_string):
+        return False
+    return not LARGE_FORMAT_SPEC.search(fmt.this)
