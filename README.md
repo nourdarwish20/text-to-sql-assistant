@@ -1,13 +1,38 @@
 # 🗄️ Text-to-SQL Assistant
 
+**[▶ Live demo](https://text-to-sql-assistant-gcxx49tj4nx8k9kwwvc5yb.streamlit.app/)**: try it in your browser, no setup needed.
+
 Ask a question about a SQLite database in plain English and get the answer as a table.
 The app writes the SQL with an LLM (**local Ollama** by default, or **hosted Groq** when
 deployed), checks that the SQL is a **safe read-only SELECT**, runs it, and shows the SQL next
 to the result so you can see what it did.
 
-> "Show all employees in the marketing department"
-> → `SELECT e.first_name, e.last_name, e.job_title FROM employees e JOIN departments d ON e.department_id = d.id WHERE d.name = 'Marketing'`
-> → a table with 4 employees
+## Demo
+
+The [live demo](https://text-to-sql-assistant-gcxx49tj4nx8k9kwwvc5yb.streamlit.app/) runs on Streamlit Community Cloud with Groq
+(`openai/gpt-oss-120b`) and the sample company database. For example:
+
+**Question:** Which department has the most employees?
+
+**Generated SQL** (checked by the validator, then run read-only):
+```sql
+SELECT d.name AS department_name, COUNT(e.id) AS employee_count
+FROM employees e
+JOIN departments d ON e.department_id = d.id
+GROUP BY d.id, d.name
+ORDER BY employee_count DESC
+LIMIT 1
+```
+
+**Result:**
+
+| department_name | employee_count |
+|---|---|
+| Engineering | 6 |
+
+To see the safety check, open "Write or edit SQL yourself" and run `DROP TABLE employees`;
+it is blocked before it reaches the database. The demo uses Groq's free tier, so it may
+briefly hit a rate limit if many people use it at once.
 
 ## How it works
 
